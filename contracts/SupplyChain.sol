@@ -5,16 +5,17 @@ import "./Library.sol";
 
 contract SupplyChain {
     // ********** STATE VARIABLES **********
-    uint256 constant maxDeliveryTime = 864000;
+    // uint256 constant maxDeliveryTime = 864000; // original
+    uint256 constant maxDeliveryTime = 300;
     address admin;
     uint256 registrationId;
     uint256 accountId;
     uint256 productId;
     uint256 orderId;
-    mapping(address => Library.Registration) registrations;
-    mapping(address => Library.Account) accounts;
-    mapping(uint256 => Library.Product) products;
-    mapping(uint256 => Library.Order) orders;
+    mapping(address => Library.Registration) public registrations;
+    mapping(address => Library.Account) public accounts;
+    mapping(uint256 => Library.Product) public products;
+    mapping(uint256 => Library.Order) public orders;
 
     // ********** CONSTRUCTOR **********
     constructor() {
@@ -24,6 +25,14 @@ contract SupplyChain {
         productId = 1;
         orderId = 1;
     }
+
+    // ********** EVENTS **********
+    event NewRegistration(uint256 reg_id, address _address, string _username, Library.UserCategory _userCategory, bool _isAuthenticated);
+    event ApproveUser(uint256 acc_id, address _address, string _username, Library.UserCategory _userCategory, bool _isAuthenticated);
+    event Product(uint256 productId, string productName, uint256 productPrice, address _address);
+    event Order(uint256 orderId, uint256 productId, uint256 quantity, uint256 totalPrice, uint256 expectedDeliveryDate, bool isDelivered, address customer, address seller, bool isApprovedByCustoms);
+    event Ownership(address _address, uint256 orderId);
+    event ParcelApproval(uint256 ordId);
 
     // ********** MODIFIERS **********
     modifier VerifyUserIsAdmin() {
@@ -45,7 +54,7 @@ contract SupplyChain {
 
     modifier VerifyUserIsSeller() {
         require(
-            accounts[msg.sender].userCategory == Library.UserCategory.Seller
+            accounts[msg.sender].userCategory == Library.UserCategory.LocalSeller || accounts[msg.sender].userCategory == Library.UserCategory.ForeignSeller
         );
         _;
     }
@@ -68,36 +77,40 @@ contract SupplyChain {
     }
 
     modifier VerifyNextOwnerEligibility(address to, uint256 ordId) {
-        require(
-            accounts[msg.sender].userCategory == Library.UserCategory.Seller &&
-                accounts[to].userCategory == Library.UserCategory.ForeignCarrier
-        );
+        if(
+            accounts[msg.sender].userCategory == Library.UserCategory.ForeignSeller &&
+                accounts[to].userCategory == Library.UserCategory.ForeignCarrier && accounts[to].id != 0
+        )
         _;
-        require(
+        if(
+            accounts[msg.sender].userCategory == Library.UserCategory.LocalSeller &&
+                accounts[to].userCategory == Library.UserCategory.LocalCarrier && accounts[to].id != 0
+        )
+        _;
+        if(
             accounts[msg.sender].userCategory ==
                 Library.UserCategory.ForeignCarrier &&
                 accounts[to].userCategory ==
-                Library.UserCategory.ShippingCompany
-        );
+                Library.UserCategory.ShippingCompany && accounts[to].id != 0
+        )
         _;
-        require(
+        if(
             accounts[msg.sender].userCategory ==
                 Library.UserCategory.ShippingCompany &&
                 accounts[to].userCategory ==
                 Library.UserCategory.LocalCarrier &&
-                orders[ordId].isApprovedByCustoms == true
-        );
+                orders[ordId].isApprovedByCustoms == true && accounts[to].id != 0
+        )
         _;
-        require(
+        if(
             accounts[msg.sender].userCategory ==
                 Library.UserCategory.LocalCarrier &&
-                accounts[to].userCategory == Library.UserCategory.Customer
-        );
+                accounts[to].userCategory == Library.UserCategory.Customer && accounts[to].id != 0
+        )
         _;
     }
 
     // ********** FUNCTIONS **********
-
     function registerUser(
         string memory username,
         Library.UserCategory userCategory
@@ -109,9 +122,10 @@ contract SupplyChain {
             userCategory,
             false
         );
+        emit NewRegistration(registrationId, msg.sender, username, userCategory, false);
         registrationId++;
     }
-
+    
     function approveUser(address registeredUser)
         external
         VerifyUserIsAdmin
@@ -123,10 +137,11 @@ contract SupplyChain {
             registrations[registeredUser].username,
             registrations[registeredUser].userCategory
         );
-        accountId++;
         registrations[registeredUser].isAuthenticated = true;
+        emit ApproveUser(accountId, registeredUser, registrations[registeredUser].username, registrations[registeredUser].userCategory, registrations[registeredUser].isAuthenticated);
+        accountId++;
     }
-
+    
     function addProduct(string memory productName, uint256 productPrice)
         external
         VerifyUserIsSeller
@@ -137,6 +152,8 @@ contract SupplyChain {
             productPrice,
             msg.sender
         );
+        emit Product(productId, productName, productPrice, msg.sender);
+        productId++;
     }
 
     function placeOrder(uint256 prodId, uint256 quantity)
@@ -154,8 +171,10 @@ contract SupplyChain {
             expectedDeliveryDate,
             false,
             products[prodId].seller,
+            msg.sender,
             false
         );
+        emit Order(orderId, prodId, quantity, totalPrice, expectedDeliveryDate, false, msg.sender, products[prodId].seller, false);
         orderId++;
     }
 
@@ -166,10 +185,12 @@ contract SupplyChain {
     {
         Library.Order storage order = orders[ordId];
         order.currentOwnership = to;
+        emit Ownership(to, ordId);
     }
 
     function approveParcels(uint256 ordId) external VerifyUserIsCustoms {
         orders[ordId].isApprovedByCustoms = true;
+        emit ParcelApproval(ordId);
     }
 
     function queryOrderOwnership(uint256 ordId)
