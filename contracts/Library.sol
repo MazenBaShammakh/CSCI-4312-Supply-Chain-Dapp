@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 pragma solidity >=0.4.22 <0.9.0;
 
 library Library {
@@ -32,15 +31,17 @@ library Library {
         uint256 expectedDeliveryDate;
         bool isDelivered;
         address currentOwnership;
+        address recepient;
         bool isApprovedByCustoms;
     }
 
     enum UserCategory {
-        Seller,
-        ForeignCarrier,
-        ShippingCompany,
-        Customs,
+        LocalSeller,
+        ForeignSeller,
         LocalCarrier,
+        ForeignCarrier,
+        ShippingCompany, 
+        Customs, 
         Customer
     }
 }
